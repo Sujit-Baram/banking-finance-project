@@ -7,33 +7,18 @@ terraform {
   }
 }
 
-# Configure the AWS Provider
+# ✅ AWS Provider – OHIO (us-east-2)
 provider "aws" {
-  region     = "ap-south-1"
+  region = "us-east-2"
 }
+
+# ✅ Key Pair (FIXED PATH – no ~)
 resource "aws_key_pair" "example" {
-  key_name = "key02"
-  public_key = file("~/.ssh/id_ed25519.pub")
+  key_name   = "key02"
+  public_key = file("/var/lib/jenkins/.ssh/id_ed25519.pub")
 }
 
-resource "aws_security_group" "allow_all" {
-  name_prefix = "allow_all"
-
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"  # This allows all protocols (TCP, UDP, ICMP)
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"  # This allows all protocols (TCP, UDP, ICMP)
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
+# ✅ Latest Ubuntu 22.04 AMI (Ohio compatible)
 data "aws_ami" "ubuntu" {
   most_recent = true
 
@@ -50,15 +35,22 @@ data "aws_ami" "ubuntu" {
   owners = ["099720109477"] # Canonical
 }
 
+# ✅ EC2 Instance
 resource "aws_instance" "server" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = var.instance_type
-  key_name = "key02"
-  vpc_security_group_ids = [aws_security_group.allow_all.id]
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.instance_type
+  key_name                    = aws_key_pair.example.key_name
+
+  # 🔴 REQUIRED when using custom VPC
+  subnet_id                   = aws_subnet.public.id
+  vpc_security_group_ids      = [aws_security_group.web_sg.id]
+  associate_public_ip_address = true
 
   tags = {
     Name = "${terraform.workspace}_server"
   }
+
+  # 🔵 Remote Exec (UNCHANGED)
   provisioner "remote-exec" {
     inline = [
       "cat /etc/os-release",
@@ -68,16 +60,21 @@ resource "aws_instance" "server" {
       "chown -R ubuntu:ubuntu /home/ubuntu/.ssh"
     ]
   }
+
   connection {
-      type        = "ssh"
-      host        = self.public_ip
-      user        = "ubuntu"
-      private_key = file(var.ssh_private_key)
-   }
-  provisioner "local-exec" {
-    command = "echo '${self.public_ip} ansible_user=ubuntu ansible_private_key_file=~/.ssh/id_ed25519' > inventory.ini"
+    type        = "ssh"
+    host        = self.public_ip
+    user        = "ubuntu"
+    private_key = file(var.ssh_private_key)
   }
+
+  # 🔵 Generate Ansible inventory (FIXED PATH)
   provisioner "local-exec" {
-        command = "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -u ubuntu -i inventory.ini -e 'ansible_python_interpreter=/usr/bin/python3' ansible-playbook.yml"
+    command = "echo '${self.public_ip} ansible_user=ubuntu ansible_private_key_file=/var/lib/jenkins/.ssh/id_ed25519' > inventory.ini"
+  }
+
+  # 🔵 Run Ansible
+  provisioner "local-exec" {
+    command = "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -u ubuntu -i inventory.ini -e 'ansible_python_interpreter=/usr/bin/python3' ansible-playbook.yml"
   }
 }
