@@ -14,7 +14,7 @@ provider "aws" {
 
 # ✅ Key Pair (FIXED PATH – no ~)
 resource "aws_key_pair" "example" {
-  key_name   = "key02"
+  key_name   = "key03"
   public_key = file("/var/lib/jenkins/.ssh/id_ed25519.pub")
 }
 
